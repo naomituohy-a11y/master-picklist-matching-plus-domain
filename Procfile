@@ -1,2 +1,1 @@
-web: python master-picklist-matching-main/app.py
-
+web: python app.py
