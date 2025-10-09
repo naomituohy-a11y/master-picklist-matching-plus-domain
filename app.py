@@ -7,7 +7,7 @@ from openpyxl.styles import PatternFill
 import gradio as gr
 
 # ============================================================
-# Domain ↔ Company matching helpers
+# Domain ↔ Company matching helpers (no AI / web)
 # ============================================================
 
 SUFFIXES = {
@@ -16,13 +16,12 @@ SUFFIXES = {
     "plc", "public", "llc", "lp", "llp", "ulc", "pc", "pllc", "sa", "ag", "nv",
     "se", "bv", "oy", "ab", "aps", "as", "kft", "zrt", "rt", "sarl", "sas", "spa",
     "gmbh", "ug", "bvba", "cvba", "nvsa", "pte", "pty", "bhd", "sdn", "kabushiki",
-    "kaisha", "kk", "godo", "dmcc", "pjsc", "psc", "jsc", "ltda", "srl",
+    "kaisha", "kk", "godō", "dk", "dmcc", "pjsc", "psc", "jsc", "ltda", "srl",
     "s.r.l", "group", "holdings", "limitedpartnership"
 }
 
 STOPWORDS = {"net", "pro", "it", "web", "data", "info", "biz"}
 THRESHOLD = 70  # fuzzy cutoff
-
 
 def _normalize_tokens(text: str) -> str:
     """Clean and simplify text for comparison."""
@@ -31,7 +30,6 @@ def _normalize_tokens(text: str) -> str:
     text = re.sub(r"[^a-zA-Z0-9\s]", " ", text.lower())
     parts = [w for w in text.split() if w not in SUFFIXES]
     return " ".join(parts).strip()
-
 
 def _clean_domain(domain: str) -> str:
     """Extract the core domain name."""
@@ -46,19 +44,28 @@ def _clean_domain(domain: str) -> str:
         return parts[-2]
     return domain
 
-
 def compare_company_domain(company: str, domain: str):
-    """Return (match_status, score, reason)."""
+    """Return (match_status, score, reason)"""
     c = _normalize_tokens(company)
     d = _clean_domain(domain)
     if not c or not d:
         return "Unsure – Please Check", 0, "missing input"
 
-    # direct containment
+    # --- 1️⃣ Direct containment check ---
     if d in c.replace(" ", "") or c.replace(" ", "") in d:
         return "Likely Match", 100, "direct containment"
 
-    # fuzzy ratio
+    # --- 2️⃣ Handle special equivalences (Therapeutics ↔ Tx) ---
+    if ("therapeutic" in c and "tx" in d) or ("tx" in c and "therapeutic" in d):
+        return "Likely Match", 95, "tx ↔ therapeutics equivalence"
+
+    # --- 3️⃣ Handle broader brand-style suffixes (bio, pharma, med, health, labs, rx) ---
+    BRAND_TERMS = {"tx", "bio", "pharma", "therapeutics", "labs", "health", "med", "rx"}
+    if any(term in c.split() for term in BRAND_TERMS) and any(term in d for term in BRAND_TERMS):
+        if fuzz.partial_ratio(c, d) >= 70:
+            return "Likely Match", 90, "brand suffix match"
+
+    # --- 4️⃣ Fuzzy ratio fallback ---
     score = fuzz.token_set_ratio(c, d)
     if score >= 85:
         return "Likely Match", score, "strong fuzzy"
@@ -66,7 +73,6 @@ def compare_company_domain(company: str, domain: str):
         return "Unsure – Please Check", score, "weak fuzzy"
     else:
         return "Likely NOT Match", score, "low similarity"
-
 
 # ============================================================
 # Main matching logic (Master ↔ Picklist)
@@ -148,10 +154,9 @@ def run_matching(master_file, picklist_file, progress=gr.Progress(track_tqdm=Tru
         # ---- Step 4: Domain vs Company check ----
         progress(0.6, desc="🌐 Checking company ↔ domain connections...")
 
-        company_cols = [c for c in df_master.columns if c.strip().lower() in
-                        ["companyname", "company", "company name", "company_name"]]
-        domain_cols = [c for c in df_master.columns if c.strip().lower() in
-                       ["website", "domain", "email domain", "email_domain"]]
+        # Try to find the best column names automatically
+        company_cols = [c for c in df_master.columns if c.strip().lower() in ["companyname", "company", "company name", "company_name"]]
+        domain_cols = [c for c in df_master.columns if c.strip().lower() in ["website", "domain", "email domain", "email_domain"]]
 
         if company_cols and domain_cols:
             company_col = company_cols[0]
@@ -209,24 +214,20 @@ def run_matching(master_file, picklist_file, progress=gr.Progress(track_tqdm=Tru
     except Exception as e:
         return f"❌ Error: {str(e)}"
 
-
 # ============================================================
-# Gradio Blocks Interface (v5 compatible)
+# Gradio Interface
 # ============================================================
 
-with gr.Blocks(title="📊 Master–Picklist + Domain Matching Tool") as demo:
-    gr.Markdown("## 📊 Master–Picklist + Domain Matching Tool")
-    gr.Markdown(
-        "Upload your MASTER and PICKLIST Excel files below to perform automated matching, seniority parsing, and domain/company validation."
-    )
-
-    master_file = gr.File(label="Upload MASTER Excel file (.xlsx)")
-    picklist_file = gr.File(label="Upload PICKLIST Excel file (.xlsx)")
-    run_btn = gr.Button("🚀 Run Matching Process")
-    output_file = gr.File(label="Download Processed File")
-
-    run_btn.click(fn=run_matching, inputs=[master_file, picklist_file], outputs=output_file)
-
+demo = gr.Interface(
+    fn=run_matching,
+    inputs=[
+        gr.File(label="Upload MASTER Excel file (.xlsx)"),
+        gr.File(label="Upload PICKLIST Excel file (.xlsx)")
+    ],
+    outputs=gr.File(label="Download Processed File"),
+    title="📊 Master–Picklist + Domain Matching Tool",
+    description="Upload your MASTER and PICKLIST Excel files to perform automated matching, seniority parsing, and domain/company validation."
+)
 
 # ============================================================
 # Launch for local + Railway deployment
