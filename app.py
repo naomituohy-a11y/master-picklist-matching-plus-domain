@@ -75,7 +75,6 @@ def compare_company_domain(company: str, domain: str):
     d_raw = domain.lower().strip()
     d = _clean_domain(d_raw)
 
-    # Alias equivalence table (expandable)
     aliases = {
         "johnlewis": "john lewis group",
         "directlinegroup": "direct line group",
@@ -121,14 +120,12 @@ def run_matching(master_file, picklist_file, highlight_changes=True, progress=gr
 
         progress(0.2, desc="🔧 Preparing data...")
         df_out = df_master.copy()
-        corrected_cells = set()
 
-        # Country normalization & value matching
         for col in df_master.columns:
             if "country" in col.lower():
                 df_out[col] = df_master[col].astype(str).apply(lambda x: COUNTRY_EQUIVALENTS.get(x.strip().lower(), x))
 
-        # ---- Domain vs Company (from email only) ----
+        # ---- Extract email domain and match ----
         progress(0.6, desc="🌐 Validating company ↔ email domain...")
         company_cols = [c for c in df_master.columns if c.strip().lower() in ["company", "companyname", "company name"]]
         email_cols = [c for c in df_master.columns if "email" in c.lower()]
@@ -154,7 +151,6 @@ def run_matching(master_file, picklist_file, highlight_changes=True, progress=gr
             df_out["Domain_Check_Score"] = None
             df_out["Domain_Check_Reason"] = None
 
-        # ---- Save + Formatting ----
         progress(0.9, desc="💾 Saving results...")
         out_file = f"{os.path.splitext(master_file.name)[0]} - Full_Check_Results.xlsx"
         df_out.to_excel(out_file, index=False)
@@ -184,7 +180,7 @@ def run_matching(master_file, picklist_file, highlight_changes=True, progress=gr
         return f"❌ Error: {str(e)}"
 
 # ============================================================
-# 🎨 Fancy UI Theme (fixed for Gradio 4.44)
+# 🎨 Fancy UI Theme
 # ============================================================
 
 fancy_theme = gthemes.Soft(
@@ -221,34 +217,40 @@ h1, h2, h3, .title {
 """
 
 # ============================================================
-# 🎛️ Gradio Interface
+# 🎛️ Gradio Interface (with loader + success message)
 # ============================================================
 
-demo = gr.Interface(
-    fn=run_matching,
-    inputs=[
-        gr.File(label="Upload MASTER Excel file (.xlsx)"),
-        gr.File(label="Upload PICKLIST Excel file (.xlsx)"),
-        gr.Checkbox(label="Highlight changed values (blue)", value=True)
-    ],
-    outputs=gr.File(label="Download Processed File"),
-    title="📊 Master–Picklist + Domain Matching Tool",
-    description="Upload MASTER & PICKLIST Excel files to auto-match, validate domains, and optionally highlight changed values.",
-    theme=fancy_theme,
-    css=custom_css
-)
+with gr.Blocks(theme=fancy_theme, css=custom_css, title="📊 Master–Picklist + Domain Matching Tool") as demo:
+    gr.Markdown("## 📄 Upload your Master & Picklist files")
+    with gr.Row():
+        master_file = gr.File(label="Upload MASTER Excel file (.xlsx)")
+        picklist_file = gr.File(label="Upload PICKLIST Excel file (.xlsx)")
+    highlight = gr.Checkbox(label="Highlight changed values (blue)", value=True)
+
+    run_btn = gr.Button("🚀 Run Matching Process")
+    status_box = gr.Markdown("", elem_id="status_box")
+    result_file = gr.File(label="⬇️ Download Processed File", visible=False)
+
+    def process_files(master_file, picklist_file, highlight):
+        status_box.update("⏳ **Processing... please wait** ⏳")
+        result = run_matching(master_file, picklist_file, highlight)
+        status_box.update("✅ **Processing Complete!**")
+        return result, gr.update(visible=True)
+
+    run_btn.click(fn=process_files, inputs=[master_file, picklist_file, highlight], outputs=[result_file])
 
 # ============================================================
-# 🚀 Launch (Railway compatible)
+# 🚀 Launch (Railway compatible & Gradio 4.44+)
 # ============================================================
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 7860))
-    demo.queue(concurrency_count=1, max_size=10).launch(
+    demo.launch(
         server_name="0.0.0.0",
         server_port=port,
         share=False,
         show_api=False,
         favicon_path=None,
-        quiet=True
+        quiet=True,
+        max_threads=10
     )
