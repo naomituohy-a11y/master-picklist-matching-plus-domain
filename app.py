@@ -350,11 +350,19 @@ demo = gr.Interface(
 # 🚀 Launch (Railway compatible)
 # ============================================================
 
+# ============================================================
+# 🚀 Launch (Railway compatible)
+# ============================================================
+
 if __name__ == "__main__":
+    import os
     port = int(os.environ.get("PORT", 7860))
-    demo.launch(
-        server_name="0.0.0.0",
-        server_port=port,
-        show_api=False,
-        share=False
+    demo.queue(concurrency_count=1, max_size=10).launch(
+        server_name="0.0.0.0",     # required for Railway external access
+        server_port=port,          # binds to dynamic port
+        share=False,               # disable gradio.live
+        show_api=False,            # suppress API display
+        quiet=True,                # cleaner logs
+        favicon_path=None
     )
+
