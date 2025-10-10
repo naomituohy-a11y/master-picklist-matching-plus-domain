@@ -125,7 +125,6 @@ def run_matching(master_file, picklist_file, highlight_changes=True, progress=gr
             if "country" in col.lower():
                 df_out[col] = df_master[col].astype(str).apply(lambda x: COUNTRY_EQUIVALENTS.get(x.strip().lower(), x))
 
-        # ---- Extract email domain and match ----
         progress(0.6, desc="🌐 Validating company ↔ email domain...")
         company_cols = [c for c in df_master.columns if c.strip().lower() in ["company", "companyname", "company name"]]
         email_cols = [c for c in df_master.columns if "email" in c.lower()]
@@ -180,67 +179,39 @@ def run_matching(master_file, picklist_file, highlight_changes=True, progress=gr
         return f"❌ Error: {str(e)}"
 
 # ============================================================
-# 🎨 Fancy UI Theme
+# 🎨 Simple UI Theme
 # ============================================================
 
-fancy_theme = gthemes.Soft(
-    primary_hue="blue",
-    secondary_hue="indigo",
-    neutral_hue="slate",
-    text_size="md",
-    radius_size="lg",
-).set(
-    body_background_fill="#f8fafc",
-    block_background_fill="#ffffff",
-    border_color_primary="#d1d5db",
-    button_primary_background_fill="#2563eb",
-    button_primary_text_color="white",
-)
+fancy_theme = gthemes.Soft(primary_hue="blue", secondary_hue="indigo")
 
 custom_css = """
 @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap');
 body, .gradio-container {
     font-family: 'Poppins', sans-serif !important;
-    background: linear-gradient(180deg, #f9fafb 0%, #eef2ff 100%) !important;
-}
-h1, h2, h3, .title {
-    color: #1e293b !important;
-    font-weight: 600 !important;
-}
-.gr-button {
-    background: linear-gradient(90deg, #2563eb, #4f46e5) !important;
-    color: white !important;
-    border-radius: 12px !important;
-    font-weight: 600 !important;
-    transition: all 0.2s ease-in-out !important;
 }
 """
 
 # ============================================================
-# 🎛️ Gradio Interface (with loader + success message)
+# 🎛️ Classic Interface (simplified & reliable)
 # ============================================================
 
-with gr.Blocks(theme=fancy_theme, css=custom_css, title="📊 Master–Picklist + Domain Matching Tool") as demo:
-    gr.Markdown("## 📄 Upload your Master & Picklist files")
-    with gr.Row():
-        master_file = gr.File(label="Upload MASTER Excel file (.xlsx)")
-        picklist_file = gr.File(label="Upload PICKLIST Excel file (.xlsx)")
-    highlight = gr.Checkbox(label="Highlight changed values (blue)", value=True)
-
-    run_btn = gr.Button("🚀 Run Matching Process")
-    status_box = gr.Markdown("", elem_id="status_box")
-    result_file = gr.File(label="⬇️ Download Processed File", visible=False)
-
-    def process_files(master_file, picklist_file, highlight):
-        status_box.update("⏳ **Processing... please wait** ⏳")
-        result = run_matching(master_file, picklist_file, highlight)
-        status_box.update("✅ **Processing Complete!**")
-        return result, gr.update(visible=True)
-
-    run_btn.click(fn=process_files, inputs=[master_file, picklist_file, highlight], outputs=[result_file])
+demo = gr.Interface(
+    fn=run_matching,
+    inputs=[
+        gr.File(label="Upload MASTER Excel file (.xlsx)"),
+        gr.File(label="Upload PICKLIST Excel file (.xlsx)"),
+        gr.Checkbox(label="Highlight changed values (blue)", value=True)
+    ],
+    outputs=gr.File(label="⬇️ Download Processed File"),
+    title="📊 Master–Picklist + Domain Matching Tool",
+    description="Upload MASTER & PICKLIST Excel files to auto-match, validate domains, and highlight matches.",
+    theme=fancy_theme,
+    css=custom_css,
+    concurrency_limit=5
+)
 
 # ============================================================
-# 🚀 Launch (Railway compatible & Gradio 4.44+)
+# 🚀 Launch (Railway compatible)
 # ============================================================
 
 if __name__ == "__main__":
@@ -250,7 +221,6 @@ if __name__ == "__main__":
         server_port=port,
         share=False,
         show_api=False,
-        favicon_path=None,
         quiet=True,
         max_threads=10
     )
