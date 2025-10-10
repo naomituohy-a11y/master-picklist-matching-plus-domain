@@ -8,7 +8,7 @@ import gradio as gr
 import gradio.themes as gthemes
 
 # ============================================================
-# 🧩 Setup – Normalization helpers and constants
+# 🧩 Normalization helpers & constants
 # ============================================================
 
 SUFFIXES = {
@@ -33,7 +33,7 @@ COUNTRY_EQUIVALENTS = {
 }
 
 # ============================================================
-# 🧹 Text cleaning helpers
+# 🧹 Cleaning helpers
 # ============================================================
 
 def _normalize_tokens(text: str) -> str:
@@ -62,7 +62,7 @@ def _extract_domain_from_email(email: str) -> str:
     return domain
 
 # ============================================================
-# 🌐 Company ↔ Domain Comparison (improved)
+# 🌐 Company ↔ Domain comparison
 # ============================================================
 
 def compare_company_domain(company: str, domain: str):
@@ -86,15 +86,12 @@ def compare_company_domain(company: str, domain: str):
     if d in aliases:
         d = aliases[d]
 
-    # Direct containment
     if d.replace(" ", "") in c.replace(" ", "") or c.replace(" ", "") in d.replace(" ", ""):
         return "Likely Match", 100, "direct containment"
 
-    # Short domain boost (e.g., MG, IHG, THG)
     if len(d) <= 3 and d in c:
         return "Likely Match", 95, f"short alias match ({d})"
 
-    # Combined fuzzy scores
     score_token = fuzz.token_set_ratio(c, d)
     score_partial = fuzz.partial_ratio(c, d)
     score_avg = (score_token + score_partial) / 2
@@ -107,7 +104,7 @@ def compare_company_domain(company: str, domain: str):
         return "Likely NOT Match", score_avg, "low similarity"
 
 # ============================================================
-# 🧮 Main Matching Function
+# 🧮 Main matching function
 # ============================================================
 
 def run_matching(master_file, picklist_file, highlight_changes=True, progress=gr.Progress(track_tqdm=True)):
@@ -150,7 +147,6 @@ def run_matching(master_file, picklist_file, highlight_changes=True, progress=gr
             else:
                 df_out[out_col] = "Column Missing"
 
-        # ---- Dynamic Question Columns ----
         q_cols = [c for c in df_picklist.columns if re.match(r"(?i)q0*\d+|question\s*\d+", c)]
         for qc in q_cols:
             out_col = f"Match_{qc}"
@@ -169,12 +165,11 @@ def run_matching(master_file, picklist_file, highlight_changes=True, progress=gr
             else:
                 df_out[out_col] = "Column Missing"
 
-        # ---- Seniority parsing ----
         def parse_seniority(title):
             if not isinstance(title, str): return "Entry", "no title"
             t = title.lower().strip()
             if re.search(r"\bchief\b|\bcio\b|\bcto\b|\bceo\b|\bcfo\b|\bciso\b|\bcpo\b|\bcso\b|\bcoo\b|\bchro\b|\bpresident\b", t): return "C Suite", "c-level"
-            if re.search(r"\bvice president\b|\bvp\b|\bsvp\b|\bev\b|\bev\b", t): return "VP", "vp"
+            if re.search(r"\bvice president\b|\bvp\b|\bsvp\b", t): return "VP", "vp"
             if re.search(r"\bhead\b", t): return "Head", "head"
             if re.search(r"\bdirector\b", t): return "Director", "director"
             if re.search(r"\bmanager\b|\bmgr\b", t): return "Manager", "manager"
@@ -192,7 +187,6 @@ def run_matching(master_file, picklist_file, highlight_changes=True, progress=gr
 
         # ---- Domain vs Company (always from email) ----
         progress(0.6, desc="🌐 Validating company ↔ email domain...")
-
         company_cols = [c for c in df_master.columns if c.strip().lower() in ["companyname","company","company name","company_name"]]
         email_cols = [c for c in df_master.columns if "email" in c.lower()]
 
@@ -222,7 +216,6 @@ def run_matching(master_file, picklist_file, highlight_changes=True, progress=gr
             df_out["Domain_Check_Score"] = None
             df_out["Domain_Check_Reason"] = None
 
-        # ---- Save + Formatting ----
         progress(0.9, desc="💾 Saving results...")
         out_file = f"{os.path.splitext(master_file.name)[0]} - Full_Check_Results.xlsx"
         df_out.to_excel(out_file, index=False)
@@ -258,7 +251,7 @@ def run_matching(master_file, picklist_file, highlight_changes=True, progress=gr
         return f"❌ Error: {str(e)}"
 
 # ============================================================
-# 🎨 Modern Gradio Theme + Styling
+# 🎨 Theme + styling
 # ============================================================
 
 fancy_theme = gthemes.Soft(
@@ -285,7 +278,6 @@ body, .gradio-container {
 h1, h2, h3, .title {
   color: #1e293b !important;
   font-weight: 600 !important;
-  letter-spacing: 0.5px !important;
 }
 .gr-button {
   background: linear-gradient(90deg, #2563eb, #4f46e5) !important;
@@ -334,9 +326,14 @@ demo = gr.Interface(
 )
 
 # ============================================================
-# 🚀 Launch
+# 🚀 Launch (fixed for Railway)
 # ============================================================
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 7860))
-    demo.launch(server_name="0.0.0.0", server_port=port)
+    demo.launch(
+        server_name="0.0.0.0",
+        server_port=port,
+        show_api=False,
+        share=False
+    )
