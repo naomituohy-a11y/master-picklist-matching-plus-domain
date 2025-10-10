@@ -62,11 +62,11 @@ def _extract_domain_from_email(email: str) -> str:
     return domain
 
 # ============================================================
-# 🌐 Company ↔ Domain comparison
+# 🌐 Advanced Company ↔ Domain Comparison
 # ============================================================
 
 def compare_company_domain(company: str, domain: str):
-    """Improved company ↔ domain comparison with better short-name & alias logic."""
+    """Advanced company ↔ domain comparison with dynamic short-name & alias matching."""
     if not isinstance(company, str) or not isinstance(domain, str):
         return "Unsure – Please Check", 0, "missing input"
 
@@ -74,24 +74,42 @@ def compare_company_domain(company: str, domain: str):
     d_raw = domain.lower().strip()
     d = _clean_domain(d_raw)
 
+    # --- Known brand aliases ---
     aliases = {
-        "johnlewis":"john lewis group",
-        "directlinegroup":"direct line group","dlg":"direct line group",
-        "matalan":"matalan","ticketmaster":"ticketmaster","deliveroo":"deliveroo",
-        "motorway":"motorway","monsoon":"monsoon accessorize","uktv":"uktv",
-        "mg":"mg motor","thg":"the hut group","ihg":"intercontinental hotels group",
-        "imperialbrands":"imperial brands"
+        "johnlewis": "john lewis group",
+        "dlg": "direct line group",
+        "thg": "the hut group",
+        "ihg": "intercontinental hotels group",
+        "bt": "british telecom",
+        "hsbc": "hong kong and shanghai banking corporation",
+        "pwc": "pricewaterhousecoopers",
+        "kpmg": "kpmg international",
+        "ey": "ernst and young",
+        "dhl": "deutsche post",
+        "unilever": "unilever plc",
+        "tesco": "tesco plc",
     }
 
     if d in aliases:
         d = aliases[d]
 
+    # --- Dynamic short domain detection (2–4 chars) ---
+    if len(d) <= 4:
+        letters_in_name = sum([1 for ch in d if ch in c])
+        if letters_in_name >= len(d) - 1:
+            return "Likely Match", 90, f"short domain pattern ({d}) found in name"
+
+    # --- Direct containment ---
     if d.replace(" ", "") in c.replace(" ", "") or c.replace(" ", "") in d.replace(" ", ""):
         return "Likely Match", 100, "direct containment"
 
-    if len(d) <= 3 and d in c:
-        return "Likely Match", 95, f"short alias match ({d})"
+    # --- Shared industry term boost ---
+    common_terms = {"energy", "power", "pharma", "bank", "group", "telecom", "systems", "media", "health", "tech"}
+    if any(t in c.split() for t in common_terms if t in d):
+        if fuzz.partial_ratio(c, d) >= 70:
+            return "Likely Match", 85, "shared industry term"
 
+    # --- Fuzzy matching fallback ---
     score_token = fuzz.token_set_ratio(c, d)
     score_partial = fuzz.partial_ratio(c, d)
     score_avg = (score_token + score_partial) / 2
@@ -147,6 +165,7 @@ def run_matching(master_file, picklist_file, highlight_changes=True, progress=gr
             else:
                 df_out[out_col] = "Column Missing"
 
+        # --- Dynamic question columns ---
         q_cols = [c for c in df_picklist.columns if re.match(r"(?i)q0*\d+|question\s*\d+", c)]
         for qc in q_cols:
             out_col = f"Match_{qc}"
@@ -165,6 +184,7 @@ def run_matching(master_file, picklist_file, highlight_changes=True, progress=gr
             else:
                 df_out[out_col] = "Column Missing"
 
+        # --- Seniority parsing ---
         def parse_seniority(title):
             if not isinstance(title, str): return "Entry", "no title"
             t = title.lower().strip()
@@ -185,7 +205,7 @@ def run_matching(master_file, picklist_file, highlight_changes=True, progress=gr
             df_out["Parsed_Seniority"] = None
             df_out["Seniority_Logic"] = "jobtitle column not found"
 
-        # ---- Domain vs Company (always from email) ----
+        # --- Domain vs Company (always from email) ---
         progress(0.6, desc="🌐 Validating company ↔ email domain...")
         company_cols = [c for c in df_master.columns if c.strip().lower() in ["companyname","company","company name","company_name"]]
         email_cols = [c for c in df_master.columns if "email" in c.lower()]
@@ -216,6 +236,7 @@ def run_matching(master_file, picklist_file, highlight_changes=True, progress=gr
             df_out["Domain_Check_Score"] = None
             df_out["Domain_Check_Reason"] = None
 
+        # --- Save + formatting ---
         progress(0.9, desc="💾 Saving results...")
         out_file = f"{os.path.splitext(master_file.name)[0]} - Full_Check_Results.xlsx"
         df_out.to_excel(out_file, index=False)
@@ -251,7 +272,7 @@ def run_matching(master_file, picklist_file, highlight_changes=True, progress=gr
         return f"❌ Error: {str(e)}"
 
 # ============================================================
-# 🎨 Theme + styling
+# 🎨 Fancy UI Theme
 # ============================================================
 
 fancy_theme = gthemes.Soft(
@@ -317,7 +338,7 @@ demo = gr.Interface(
         "and <span style='color:#4f46e5;'>PICKLIST</span> Excel files to automatically "
         "match company data, validate <b>email domains</b>, and highlight differences.<br><br>"
         "✅ Always uses domains extracted from emails<br>"
-        "✅ Smart fuzzy + alias domain matching<br>"
+        "✅ Smart fuzzy + alias + short-domain matching<br>"
         "✅ Country normalization & color-coded results"
         "</div>"
     ),
@@ -326,7 +347,7 @@ demo = gr.Interface(
 )
 
 # ============================================================
-# 🚀 Launch (fixed for Railway)
+# 🚀 Launch (Railway compatible)
 # ============================================================
 
 if __name__ == "__main__":
