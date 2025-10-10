@@ -5,6 +5,7 @@ from rapidfuzz import fuzz
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill
 import gradio as gr
+import gradio.themes as gthemes
 
 # ============================================================
 # 🧩 Setup – Normalization helpers and constants
@@ -30,19 +31,6 @@ COUNTRY_EQUIVALENTS = {
     "iran":"islamic republic of iran","venezuela":"bolivarian republic of venezuela",
     "taiwan":"republic of china","hong kong sar":"hong kong","macao sar":"macau","prc":"china"
 }
-
-# ✅ Expanded brand/domain equivalences
-DOMAIN_EQUIVALENCES = {
-    "thg":"the hut group","thehutgroup":"the hut group","hutgroup":"the hut group",
-    "ea":"electronic arts","dlg":"direct line group","directlinegroup":"direct line group",
-    "johnlewis":"john lewis","johnlewisgroup":"john lewis group","matalan":"matalan",
-    "deliveroo":"deliveroo","ticketmaster":"ticketmaster","monsoon":"monsoon accessorize",
-    "ihg":"intercontinental hotels group","mg":"mg motor","uktv":"uktv",
-    "imperialbrands":"imperial brands","imperialbrandsplc":"imperial brands",
-    "phillips66":"phillips 66","accenture":"accenture","hpe":"hewlett packard enterprise"
-}
-
-THRESHOLD = 70
 
 # ============================================================
 # 🧹 Text cleaning helpers
@@ -74,10 +62,11 @@ def _extract_domain_from_email(email: str) -> str:
     return domain
 
 # ============================================================
-# 🌐 Improved Company ↔ Domain Comparison
+# 🌐 Company ↔ Domain Comparison (improved)
 # ============================================================
 
 def compare_company_domain(company: str, domain: str):
+    """Improved company ↔ domain comparison with better short-name & alias logic."""
     if not isinstance(company, str) or not isinstance(domain, str):
         return "Unsure – Please Check", 0, "missing input"
 
@@ -85,42 +74,37 @@ def compare_company_domain(company: str, domain: str):
     d_raw = domain.lower().strip()
     d = _clean_domain(d_raw)
 
-    # 🧠 Apply domain equivalences
-    if d in DOMAIN_EQUIVALENCES:
-        d = DOMAIN_EQUIVALENCES[d]
+    aliases = {
+        "johnlewis":"john lewis group",
+        "directlinegroup":"direct line group","dlg":"direct line group",
+        "matalan":"matalan","ticketmaster":"ticketmaster","deliveroo":"deliveroo",
+        "motorway":"motorway","monsoon":"monsoon accessorize","uktv":"uktv",
+        "mg":"mg motor","thg":"the hut group","ihg":"intercontinental hotels group",
+        "imperialbrands":"imperial brands"
+    }
 
-    # ✅ Direct containment (handles abbreviations)
-    if d in c.replace(" ", "") or c.replace(" ", "") in d:
+    if d in aliases:
+        d = aliases[d]
+
+    # Direct containment
+    if d.replace(" ", "") in c.replace(" ", "") or c.replace(" ", "") in d.replace(" ", ""):
         return "Likely Match", 100, "direct containment"
 
-    # ✅ Token-based containment
-    if any(word in c for word in d.split()) or any(word in d for word in c.split()):
-        score = fuzz.partial_ratio(c, d)
-        if score >= 70:
-            return "Likely Match", score, "token containment"
+    # Short domain boost (e.g., MG, IHG, THG)
+    if len(d) <= 3 and d in c:
+        return "Likely Match", 95, f"short alias match ({d})"
 
-    # ✅ Brand equivalence shortcuts (e.g. ihg ↔ intercontinental)
-    for short, full in DOMAIN_EQUIVALENCES.items():
-        if (short in d and full in c) or (full in c and short in d):
-            return "Likely Match", 95, f"brand alias ({short}↔{full})"
-
-    # ✅ Brand terms logic
-    BRAND_TERMS = {"tx","bio","pharma","therapeutics","labs","health","med","rx"}
-    if any(t in c.split() for t in BRAND_TERMS) and any(t in d for t in BRAND_TERMS):
-        if fuzz.partial_ratio(c, d) >= 70:
-            return "Likely Match", 90, "brand suffix match"
-
-    # ✅ Fuzzy score logic
-    score_full = fuzz.token_sort_ratio(c, d)
+    # Combined fuzzy scores
+    score_token = fuzz.token_set_ratio(c, d)
     score_partial = fuzz.partial_ratio(c, d)
-    score = max(score_full, score_partial)
+    score_avg = (score_token + score_partial) / 2
 
-    if score >= 85:
-        return "Likely Match", score, "strong fuzzy"
-    elif score >= THRESHOLD:
-        return "Unsure – Please Check", score, "weak fuzzy"
+    if score_avg >= 80:
+        return "Likely Match", score_avg, "strong fuzzy"
+    elif score_avg >= 65:
+        return "Unsure – Please Check", score_avg, "moderate fuzzy"
     else:
-        return "Likely NOT Match", score, "low similarity"
+        return "Likely NOT Match", score_avg, "low similarity"
 
 # ============================================================
 # 🧮 Main Matching Function
@@ -206,35 +190,35 @@ def run_matching(master_file, picklist_file, highlight_changes=True, progress=gr
             df_out["Parsed_Seniority"] = None
             df_out["Seniority_Logic"] = "jobtitle column not found"
 
-        # ---- Domain vs Company ----
-        progress(0.6, desc="🌐 Validating company ↔ domain...")
+        # ---- Domain vs Company (always from email) ----
+        progress(0.6, desc="🌐 Validating company ↔ email domain...")
+
         company_cols = [c for c in df_master.columns if c.strip().lower() in ["companyname","company","company name","company_name"]]
-        domain_cols = [c for c in df_master.columns if c.strip().lower() in ["website","domain","email domain","email_domain"]]
         email_cols = [c for c in df_master.columns if "email" in c.lower()]
 
-        if company_cols:
+        if company_cols and email_cols:
             company_col = company_cols[0]
-            domain_col = domain_cols[0] if domain_cols else None
-            email_col = email_cols[0] if email_cols else None
-            statuses, scores, reasons = [], [], []
+            email_col = email_cols[0]
+
+            statuses, scores, reasons, email_domains = [], [], [], []
 
             for i in range(len(df_master)):
                 comp = df_master.at[i, company_col]
-                dom = None
-                if domain_col and pd.notna(df_master.at[i, domain_col]):
-                    dom = df_master.at[i, domain_col]
-                elif email_col and pd.notna(df_master.at[i, email_col]):
-                    dom = _extract_domain_from_email(df_master.at[i, email_col])
+                email_val = df_master.at[i, email_col]
+                dom = _extract_domain_from_email(email_val)
                 status, score, reason = compare_company_domain(comp, dom)
+
                 statuses.append(status)
                 scores.append(score)
                 reasons.append(reason)
+                email_domains.append(dom)
 
+            df_out["Extracted_Email_Domain"] = email_domains
             df_out["Domain_Check_Status"] = statuses
             df_out["Domain_Check_Score"] = scores
             df_out["Domain_Check_Reason"] = reasons
         else:
-            df_out["Domain_Check_Status"] = "No company/domain columns found"
+            df_out["Domain_Check_Status"] = "Missing company or email column"
             df_out["Domain_Check_Score"] = None
             df_out["Domain_Check_Reason"] = None
 
@@ -274,19 +258,79 @@ def run_matching(master_file, picklist_file, highlight_changes=True, progress=gr
         return f"❌ Error: {str(e)}"
 
 # ============================================================
+# 🎨 Modern Gradio Theme + Styling
+# ============================================================
+
+fancy_theme = gthemes.Soft(
+    primary_hue="blue",
+    secondary_hue="indigo",
+    neutral_hue="slate",
+    text_size="md",
+    radius_size="lg",
+).set(
+    font="Poppins",
+    body_background_fill="#f8fafc",
+    block_background_fill="#ffffff",
+    border_color_primary="#d1d5db",
+    button_primary_background_fill="#2563eb",
+    button_primary_text_color="white",
+)
+
+custom_css = """
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap');
+body, .gradio-container {
+  font-family: 'Poppins', sans-serif !important;
+  background: linear-gradient(180deg, #f9fafb 0%, #eef2ff 100%) !important;
+}
+h1, h2, h3, .title {
+  color: #1e293b !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.5px !important;
+}
+.gr-button {
+  background: linear-gradient(90deg, #2563eb, #4f46e5) !important;
+  color: white !important;
+  border-radius: 12px !important;
+  font-weight: 600 !important;
+  transition: all 0.2s ease-in-out !important;
+}
+.gr-button:hover {
+  transform: scale(1.05);
+  box-shadow: 0 4px 14px rgba(37,99,235,0.3);
+}
+footer {
+  text-align: center;
+  font-size: 13px;
+  color: #64748b;
+  margin-top: 20px;
+}
+"""
+
+# ============================================================
 # 🎛️ Gradio Interface
 # ============================================================
 
 demo = gr.Interface(
     fn=run_matching,
     inputs=[
-        gr.File(label="Upload MASTER Excel file (.xlsx)"),
-        gr.File(label="Upload PICKLIST Excel file (.xlsx)"),
-        gr.Checkbox(label="Highlight changed values (blue)", value=True)
+        gr.File(label="📂 Upload MASTER Excel file (.xlsx)"),
+        gr.File(label="📋 Upload PICKLIST Excel file (.xlsx)"),
+        gr.Checkbox(label="Highlight changed values (💙 Blue Cells)", value=True)
     ],
-    outputs=gr.File(label="Download Processed File"),
-    title="📊 Master–Picklist + Domain Matching Tool",
-    description="Upload MASTER & PICKLIST Excel files to auto-match, validate domains, map questions, and optionally highlight changed values."
+    outputs=gr.File(label="⬇️ Download Processed Results"),
+    title="✨ Master–Picklist + Email Domain Matching Tool",
+    description=(
+        "<div style='font-size:16px; line-height:1.6; color:#334155;'>"
+        "<b>Welcome!</b> Upload your <span style='color:#2563eb;'>MASTER</span> "
+        "and <span style='color:#4f46e5;'>PICKLIST</span> Excel files to automatically "
+        "match company data, validate <b>email domains</b>, and highlight differences.<br><br>"
+        "✅ Always uses domains extracted from emails<br>"
+        "✅ Smart fuzzy + alias domain matching<br>"
+        "✅ Country normalization & color-coded results"
+        "</div>"
+    ),
+    theme=fancy_theme,
+    css=custom_css,
 )
 
 # ============================================================
