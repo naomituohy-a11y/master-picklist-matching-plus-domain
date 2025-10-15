@@ -215,12 +215,14 @@ demo = gr.Interface(
 # ============================================================
 
 if __name__ == "__main__":
+    import os
     port = int(os.environ.get("PORT", 7860))
     demo.launch(
         server_name="0.0.0.0",
         server_port=port,
         share=False,
-        show_api=False,
+        show_api=False,  # prevent schema auto-gen (avoids crash)
         quiet=True,
-        max_threads=10
+        max_threads=10,
+        prevent_thread_lock=True
     )
