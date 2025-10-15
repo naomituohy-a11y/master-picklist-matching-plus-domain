@@ -1,4 +1,4 @@
 pandas
 openpyxl
 rapidfuzz
-gradio==4.44.0
+gradio==4.44.1
